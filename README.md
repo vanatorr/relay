@@ -1,23 +1,20 @@
 # Relay
 
-Voice for Claude Code on Windows. Your sessions talk to you, and you talk back to any session by name.
+**Talk to your Claude Code agents. Hear them talk back.**
 
-- **Sessions speak.** When a session finishes a turn, needs your approval or has a question, Relay says its name and a short summary out loud ("Payments fix. I fixed the button. Want me to commit it?"). If the Claude window is already in front, you get a soft chime instead.
-- **You talk back.** Press a hotkey and talk for as long as you like. Local Whisper turns it into text, and Relay sends it to the right session as if you'd typed it. "Tell payments fix, commit it" sends to the session named *payments fix*.
-- **Dictation anywhere.** A second hotkey types what you say into whatever app has focus, without sending it.
-- **Local by default.** Speech-to-text runs on your PC (faster-whisper, large-v3-turbo) and the default voice is the built-in Windows one. Nothing leaves your machine unless you choose the Edge or ElevenLabs voice.
+You run five Claude Code sessions at once. One is fixing a bug, one is writing tests, one is waiting for your approval, and you only find out when you switch windows. Relay gives them a voice. When a session finishes, gets stuck or needs a yes, you hear it in a sentence ("Payments fix. Tests pass. Want me to commit?"). You answer out loud, from anywhere in the room, and your words land in the right session as if you'd typed them.
 
-Sessions never act on their own: Relay only reads out what they report and delivers what you say.
+- **Hands off the keyboard.** Press one key, talk, and your message is delivered in about two seconds.
+- **Any language.** Speak English, French, Persian, Spanish, Japanese or any of the ~100 languages Whisper understands. Relay detects it every time you talk, so you can switch from one message to the next.
+- **Runs on your machine.** Speech recognition (Whisper large-v3-turbo) and the default voice (Kokoro, a natural British voice) both run locally. No account, no API key, no audio leaves your computer.
+- **Knows who's talking.** Each session speaks under its own name, and the name is only said when the speaker changes, so a conversation sounds like one.
+- **Never loses an update.** If an agent finishes while you're talking, Relay waits until you're done, then tells you.
+- **Dictation everywhere.** A second key types what you say into any app (email, Slack, your editor) without sending it.
+- **Safe by design.** Relay only reads out what sessions report and delivers what *you* say. Nothing on the network can make it type into a session.
 
-## Requirements
+## Set it up in five minutes
 
-- Windows 10 or 11
-- The Claude desktop app (Code tab). Relay opens sessions through its `claude://` links. Sessions running only in a plain terminal can speak but can't receive voice messages.
-- Python 3.10 or newer
-- A microphone
-- Optional: an NVIDIA GPU. Whisper also runs on the CPU, just slower.
-
-## Install
+You need the Claude desktop app (Code tab), Python 3.10+ and a microphone. An NVIDIA GPU makes speech recognition near-instant, but the CPU works too.
 
 ```powershell
 git clone https://github.com/vanatorr/relay
@@ -25,76 +22,71 @@ cd relay
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -r requirements.txt
 .\.venv\Scripts\python install_hooks.py
-```
-
-`install_hooks.py` adds three hooks to `~/.claude/settings.json` (Stop, Notification, and PostToolUse on the desktop app's wrap-up tool) and keeps a backup at `settings.json.before-relay`. Sessions you start after this will talk; restart any that are already open.
-
-On first run, Relay downloads the Whisper model (about 1.6 GB) from Hugging Face.
-
-## Run
-
-```powershell
 .\.venv\Scripts\python relay.py
 ```
 
-This runs in a visible window that shows what Relay heard and where it sent it. You should hear "Relay is on." when it starts.
+That's it. `install_hooks.py` connects Relay to Claude Code by adding three small hooks to `~/.claude/settings.json`, keeping a backup at `settings.json.before-relay`. Every session you open from now on can talk. You'll hear "Relay is on." when it starts, and the Whisper model (about 1.6 GB) downloads once on first run.
 
-- Run it in the background instead: `.\start-relay.ps1`
-- Stop it: `.\stop-relay.ps1`, or Ctrl+C in its window
+**For the best voice** (local, free), install Kokoro once:
 
-Starting a second copy is safe; it exits on its own.
-
-## Hotkeys
-
-| Keys | What it does |
-|---|---|
-| Ctrl+Shift+Space | Talk to a session. Press, speak, press again to send. |
-| Ctrl+Alt+D | Dictate. Press, speak, press again. Types the text where your cursor is, without pressing Enter. |
-| Ctrl+Alt+X | Stop speaking. The talk key also cuts speech off. |
-| Ctrl+Alt+N | Mute or unmute. |
-
-You hear a beep when recording starts and another when it stops.
-
-## Who your message goes to
-
-- "Tell **payments fix**, commit it and push" (or "tell payments fix to commit it") sends one message to that session. Say the session's title; close is fine. If Relay doesn't recognise a name, it reads out your session names and sends nothing.
-- "Talk to **marketing**" keeps sending to that session until you switch.
-- Anything else goes to the session on screen when the Claude window is in front, otherwise to the one you're attached to or last sent to. If none of those fits, Relay asks "Who should I send that to?".
-- "List sessions" reads out their names. "Stop" or "be quiet" stops speech.
-
-Whenever the target changes, Relay says "To {name}." before sending, then waits a moment. Press the talk key or the stop key during that pause to cancel.
-
-## Settings
-
-Defaults are in `config.example.json`. To change any of them, put only the keys you want to change in a `config.json` next to it, for example:
-
-```json
-{ "tts": "edge", "hotkeys": { "talk": "ctrl+alt+t" } }
+```powershell
+.\.venv\Scripts\python -m pip install kokoro-onnx
 ```
+
+Then download `kokoro-v1.0.onnx` and `voices-v1.0.bin` from the [kokoro-onnx releases](https://github.com/thewh1teagle/kokoro-onnx/releases/tag/model-files-v1.0) into a `models` folder next to `relay.py`, and add `{ "tts": "kokoro" }` to a `config.json`.
+
+## Use it
 
 | Key | What it does |
 |---|---|
-| `tts` | `"windows"` (offline, default), `"edge"` (free neural voices, sends text to Microsoft) or `"elevenlabs"` (needs `ELEVENLABS_API_KEY=...` in a `.env` file next to `relay.py`, or as an environment variable). |
-| `"tts": "kokoro"` | Local neural voice (Kokoro-82M, Apache 2.0), offline and free. Run `pip install kokoro-onnx`, then put `kokoro-v1.0.onnx` and `voices-v1.0.bin` from the [kokoro-onnx releases](https://github.com/thewh1teagle/kokoro-onnx/releases/tag/model-files-v1.0) in a `models` folder next to `relay.py`. `kokoro_voice` picks the voice (`bm_george`, `bm_lewis`, `bf_emma`, `af_heart`, ...). |
-| `elevenlabs_voice_id`, `elevenlabs_model` | Which ElevenLabs voice and model to use. Flash is the fastest; Multilingual v2 sounds more natural. |
-| `edge_voice` | Which Edge voice to use. |
-| `whisper_model` | Default `large-v3-turbo`. Use `small` on slow PCs. |
-| `whisper_language` | `null` detects the language each time; `"en"` or `"fr"` locks it. |
-| `speak_when_claude_focused` | `true` speaks even when Claude is in front. |
-| `cancel_window_sec` | How long the pause before sending lasts. |
-| `cuda_dll_dir` | A folder with `cublas64_12.dll` and cuDNN 9, if you don't use the pip packages in `requirements.txt`. |
-| `hotkeys` | Any combination of ctrl, alt, shift and win with a key. |
+| Ctrl+Shift+Space | Talk to a session. Press, speak, press again to send. |
+| Ctrl+Alt+D | Dictate into whatever app has focus, without sending. |
+| Ctrl+Alt+X | Stop speaking, or cancel a message before it sends. |
+| Ctrl+Alt+N | Mute or unmute. |
 
-Restart Relay after changing settings.
+Then just talk:
+
+- **"Tell payments fix to commit it and push."** One message to that session. Close enough on the name is fine.
+- **"Talk to marketing."** Everything you say goes there until you switch.
+- **Anything else** goes to the session on screen, or the one you last talked to.
+- **"List sessions"** reads out what's open. **"Be quiet"** stops speech.
+
+Whenever the target changes, Relay says "To payments fix." first, so a wrong target is heard before it sends, with a moment to cancel.
+
+## Make it yours
+
+Put only the settings you want to change in `config.json` next to `relay.py`. Defaults are in `config.example.json`.
+
+```json
+{ "tts": "kokoro", "kokoro_voice": "bm_george", "mic": "HyperX", "hotkeys": { "talk": "f8" } }
+```
+
+| Setting | What it does |
+|---|---|
+| `tts` | The voice: `"kokoro"` (local neural voice, recommended), `"windows"` (built in, offline), `"edge"` (free Microsoft neural voices, online) or `"elevenlabs"` (needs `ELEVENLABS_API_KEY` in a `.env` file). |
+| `kokoro_voice`, `kokoro_speed` | Kokoro voice (`bm_george`, `bm_lewis`, `bf_emma`, `af_heart`, `ff_siwis` for French, ...) and speed. |
+| `mic` | Part of your microphone's name, for example `"HyperX"`. Quiet mics are boosted automatically. |
+| `whisper_model` | Default `large-v3-turbo`. Use `small` on slower PCs. |
+| `whisper_language` | `null` detects the language each time; `"en"` or `"fr"` locks it. |
+| `speak_when_claude_focused` | `true` by default. `false` plays a chime instead while the Claude window is in front. |
+| `cancel_window_sec` | How long you have to cancel before a message sends. |
+| `hotkeys` | Any key, or ctrl/alt/shift/win plus a key. |
+| `cuda_dll_dir` | A folder with `cublas64_12.dll` and cuDNN 9, if Whisper can't find your CUDA libraries. |
+
+Restart Relay after changing settings. To run it in the background, use `.\start-relay.ps1`; to stop it, `.\stop-relay.ps1`.
 
 ## How it works
 
-1. The hooks run `hook.py`, which forwards the event to Relay on `127.0.0.1:47811`. It times out after half a second and never blocks Claude.
-2. Relay picks the line to speak: the session's own wrap-up summary and question when there is one, otherwise the first two sentences of its last message. It drops code, links and file paths, and speaks one line at a time.
-3. Session names come from `~/.claude/sessions/`.
-4. To deliver a message, Relay opens the session's `claude://` link, pastes your text and presses Enter. It then puts your clipboard and previous window back.
+1. Claude Code hooks call `hook.py` when a session finishes, needs approval or posts a summary. It forwards the event to Relay on `127.0.0.1` and gives up after half a second, so it can never slow Claude down.
+2. Relay picks one line to say: the session's own summary and question when there is one, otherwise the start of its last message, without code, links or file paths.
+3. When you talk, Whisper turns it into text on your machine. Relay works out the target, opens that session through the desktop app's `claude://` link, types your words and presses Enter, then puts your clipboard and window back.
 
-This is an unofficial tool and relies on how the desktop app behaves today, so a future app update may break delivery.
+## Coming next
+
+- **Ask Relay itself.** "What's the status on all the agents?", "Where's the server fix at?", "Go into more detail on that." Answered without interrupting any session.
+- **Routing by meaning.** "Tell the VPS one to restart nginx" reaches the session working on your server, and Relay asks "which one?" instead of guessing.
+- **Hands-free.** A wake word instead of a key, and messages that send when you stop talking.
+- **macOS and Linux.**
 
 ## Uninstall
 
@@ -104,6 +96,8 @@ This is an unofficial tool and relies on how the desktop app behaves today, so a
 ```
 
 Then delete the folder.
+
+Relay is an unofficial tool. It relies on how the Claude desktop app behaves today, so an app update may break delivery until Relay catches up.
 
 ## License
 
