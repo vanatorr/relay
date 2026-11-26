@@ -1,6 +1,7 @@
 {
   "port": 47811,
   "tts": "windows",
+  "volume": 0.6,
   "windows_rate": 1,
   "edge_voice": "en-US-AvaMultilingualNeural",
   "elevenlabs_voice_id": "21m00Tcm4TlvDq8ikWAM",

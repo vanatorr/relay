@@ -430,6 +430,11 @@ def synth_elevenlabs(text):
 def play_audio(data, stop_flag):
     snd = miniaudio.decode(data, output_format=miniaudio.SampleFormat.SIGNED16)
     samples, nch, sr = snd.samples, snd.nchannels, snd.sample_rate
+    vol = float(CFG.get("volume", 1.0))
+    if vol != 1.0:
+        import array
+        scaled = (np.frombuffer(samples, dtype=np.int16).astype(np.float32) * vol)
+        samples = array.array("h", np.clip(scaled, -32768, 32767).astype(np.int16).tobytes())
     done = threading.Event()
 
     def gen():
