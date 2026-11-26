@@ -12,6 +12,7 @@ import logging
 import os
 import queue
 import re
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -67,7 +68,12 @@ def _say(text: str) -> None:
 def vad_path() -> str:
     from faster_whisper.utils import get_assets_path
 
-    return os.path.join(get_assets_path(), "silero_vad_v6.onnx")
+    bundled = os.path.join(get_assets_path(), "silero_vad_v6.onnx")
+    if os.path.isfile(bundled):
+        return bundled
+    from relayvox.tts.models import vad_target  # fetched by `relayvox models --wake`
+
+    return vad_target()
 
 
 class Vad:
@@ -420,7 +426,7 @@ _cache_lock = threading.Lock()
 
 def _add_cuda_dlls() -> None:
     """Make the nvidia pip packages' DLLs visible to ctranslate2 (Windows)."""
-    if os.name != "nt":
+    if sys.platform != "win32":
         return
     import glob
     import site

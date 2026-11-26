@@ -15,6 +15,8 @@ import threading
 import time
 from collections.abc import Callable
 
+from relayvox.platform import chord as chord_mod
+
 # Section 5.3 names -> virtual-key codes. The low-level hook reports left/right variants.
 _VK: dict[str, int] = {
     "right_ctrl": 0xA3,
@@ -38,7 +40,23 @@ _LLKHF_INJECTED = 0x10
 _LLMHF_INJECTED = 0x01
 _MAX_UNITS = 32  # UTF-16 units per SendInput batch (section 3)
 
+# Canonical chord names (platform/chord.py) for the stop key.
+_CHORD_VK: dict[int, str] = {
+    0x10: "shift", 0xA0: "shift", 0xA1: "shift",
+    0x11: "ctrl", 0xA2: "ctrl", 0xA3: "ctrl",
+    0x12: "alt", 0xA4: "alt", 0xA5: "alt",
+    0x5B: "cmd", 0x5C: "cmd",
+    **{0x30 + n: str(n) for n in range(10)},
+    **{0x41 + n: chr(97 + n) for n in range(26)},
+    **{0x70 + n - 1: f"f{n}" for n in range(1, 25)},
+}  # fmt: skip
+
 _armed_alt: set[str] = set()  # bindings whose key is an Alt key (set by start_key_listener)
+
+
+def chord_name(vk: int) -> str | None:
+    """Canonical chord name of a virtual-key code, or None."""
+    return _CHORD_VK.get(vk)
 
 
 def resolve_keys(keys: dict[str, str]) -> tuple[dict[int, str], dict[int, str]]:
@@ -224,7 +242,17 @@ if sys.platform == "win32":
             if code == 0 and wparam in (0x100, 0x101, 0x104, 0x105):
                 ev = _KbdLL.from_address(lparam)
                 by_vk: dict[int, str] = _hook_state["by_vk"]  # type: ignore[assignment]
-                _emit(classify_key(ev.vk, ev.scan, ev.flags, wparam in (0x100, 0x104), by_vk))
+                down = wparam in (0x100, 0x104)
+                tracker = _hook_state.get("chord")
+                name = chord_name(ev.vk)
+                if (
+                    isinstance(tracker, chord_mod.Tracker)
+                    and name
+                    and not ev.flags & _LLKHF_INJECTED
+                    and tracker.feed(name, down)
+                ):
+                    _emit(("stop", True))
+                _emit(classify_key(ev.vk, ev.scan, ev.flags, down, by_vk))
         except Exception:  # noqa: S110 - a slow or raising hook gets removed by Windows
             pass
         return int(_u32.CallNextHookEx(None, code, wparam, lparam))
@@ -261,9 +289,16 @@ if sys.platform == "win32":
 
     def start_key_listener(keys: dict[str, str], sink: Callable[[str, bool], None]) -> bool:
         """Listen for keys {talk, dictate, mouse}; sink(binding|"other"|"esc", is_down) (3, 5)."""
-        by_vk, by_button = resolve_keys(keys)
+        plain = {b: n for b, n in keys.items() if b != "stop"}
+        chord = chord_mod.parse(keys.get("stop", ""))
+        by_vk, by_button = resolve_keys(plain)
         with _hook_lock:
-            _hook_state.update(by_vk=by_vk, by_button=by_button, sink=sink)
+            _hook_state.update(
+                by_vk=by_vk,
+                by_button=by_button,
+                sink=sink,
+                chord=chord_mod.Tracker(chord) if chord else None,
+            )
             _armed_alt.clear()
             _armed_alt.update(b for b, n in keys.items() if n.strip().lower() in _ALT_NAMES)
             if _hook_state.get("running"):

@@ -454,6 +454,11 @@ def on_action(binding: str, action: str) -> None:
         if deliver._window_open:
             deliver.cancel()
             _S.skip_quiet = True
+    elif action == "stop":
+        if deliver._window_open:
+            deliver.cancel()
+        speech.quiet()
+        brain.cancel()
     elif action == "quiet":
         if _S.skip_quiet:
             _S.skip_quiet = False

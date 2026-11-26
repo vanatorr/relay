@@ -126,3 +126,11 @@ def test_summary_limits():
     mixed = events.summarize("word " * 60 + ".", "Q?", 2, 60)
     assert mixed.endswith("Q?") and len(mixed) <= 60
     assert events.summarize("word " * 60 + ".", "Q?", 2, 20) == "Q?"  # no room: ask only
+
+
+def test_clean_strips_list_markers_but_keeps_versions():
+    out = events.clean("Here is the plan:\n\n1. I wait.\n2. I test.")
+    assert "1." not in out and "2." not in out
+    assert "I wait." in out and "I test." in out
+    assert "Python 3.11" in events.clean("Use Python 3.11 here.")
+    assert "v1.2" in events.clean("Released v1.2 today.")

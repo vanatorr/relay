@@ -19,6 +19,8 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
+from relayvox.platform import chord as chord_mod
+
 log = logging.getLogger("relayvox")
 
 # Section 5.3 key names -> X keysyms. Right Alt is Alt_R on US layouts and
@@ -37,11 +39,24 @@ KEYSYMS: dict[str, tuple[int, ...]] = {
     "insert": (0xFF63,),
     **{f"f{n}": (_F1 + n - 1,) for n in range(1, 25)},
 }
+_CHORD_SYMS: dict[int, str] = {
+    0xFFE1: "shift", 0xFFE2: "shift", 0xFFE3: "ctrl", 0xFFE4: "ctrl",
+    0xFFE9: "alt", 0xFFEA: "alt", 0xFE03: "alt", 0xFFEB: "cmd", 0xFFEC: "cmd",
+    **{0x30 + n: str(n) for n in range(10)},
+    **{0x61 + n: chr(97 + n) for n in range(26)},
+    **{0x41 + n: chr(97 + n) for n in range(26)},
+    **{_F1 + n - 1: f"f{n}" for n in range(1, 25)},
+}  # fmt: skip
 BUTTONS = {"x1": 8, "x2": 9}  # X side buttons (Back, Forward)
 _ESCAPE = 0xFF1B
 _AUTOREPEAT_WINDOW = 0.02  # s; X auto-repeat is a release+press pair with one timestamp
 _TOOL_TIMEOUT = 5.0
 _warned: set[str] = set()
+
+
+def chord_name(keysym: int) -> str | None:
+    """Canonical chord name of an X keysym, or None."""
+    return _CHORD_SYMS.get(keysym)
 
 
 def build_bindings(keys: dict[str, str]) -> tuple[dict[int, str], dict[int, str]]:
@@ -129,7 +144,9 @@ class _Reducer:
         by_sym: dict[int, str],
         by_button: dict[int, str],
         sink: Callable[[str, bool], None],
+        chord: chord_mod.Chord | None = None,
     ) -> None:
+        self._tracker = chord_mod.Tracker(chord) if chord else None
         self._sym = by_sym
         self._btn = by_button
         self._sink = sink
@@ -138,6 +155,9 @@ class _Reducer:
         self._pending: tuple[str, int, threading.Timer] | None = None
 
     def key(self, keysym: int, is_down: bool, stamp: int) -> None:
+        cname = chord_name(keysym)
+        if self._tracker is not None and cname and self._tracker.feed(cname, is_down):
+            self._emit("stop", True)
         name = self._sym.get(keysym)
         if name is None:
             self._emit("esc" if keysym == _ESCAPE else "other", is_down)
@@ -191,7 +211,9 @@ class _Reducer:
 
 def start_key_listener(keys: dict[str, str], sink: Callable[[str, bool], None]) -> bool:
     """Listen for keys {talk, dictate, mouse}; sink(binding|"other"|"esc", is_down) (3, 5)."""
-    by_sym, by_button = build_bindings(keys)  # ValueError on a bad name, before anything else
+    chord = chord_mod.parse(keys.get("stop", ""))
+    plain = {b: n for b, n in keys.items() if b != "stop"}
+    by_sym, by_button = build_bindings(plain)  # ValueError on a bad name, before anything else
     if session_type() != "x11":
         _warn_once(
             "keys",
@@ -203,14 +225,17 @@ def start_key_listener(keys: dict[str, str], sink: Callable[[str, bool], None]) 
         _warn_once("xlib", "python-xlib is not installed; no key listener")
         return False
     try:
-        return _start_record(by_sym, by_button, sink)
+        return _start_record(by_sym, by_button, sink, chord)
     except Exception as exc:  # noqa: BLE001 - any X failure means no listener
         log.warning("key listener failed: %s", type(exc).__name__)
         return False
 
 
 def _start_record(
-    by_sym: dict[int, str], by_button: dict[int, str], sink: Callable[[str, bool], None]
+    by_sym: dict[int, str],
+    by_button: dict[int, str],
+    sink: Callable[[str, bool], None],
+    chord: chord_mod.Chord | None = None,
 ) -> bool:
     from Xlib import X, display
     from Xlib.ext import record
@@ -221,7 +246,7 @@ def _start_record(
     if not rec.has_extension("RECORD"):
         _warn_once("record", "the X server has no RECORD extension; no key listener")
         return False
-    reducer = _Reducer(by_sym, by_button, sink)
+    reducer = _Reducer(by_sym, by_button, sink, chord)
     ctx = rec.record_create_context(
         0,
         [record.AllClients],

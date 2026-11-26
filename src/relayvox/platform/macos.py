@@ -13,6 +13,8 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
+from relayvox.platform import chord as chord_mod
+
 # Bundle ids of the Claude desktop app (DESIGN section 3, config `desktop_app.bundle_ids`).
 # The real id is unverified (section 3 "Not verifiable"); callers may extend this list.
 BUNDLE_IDS: list[str] = ["com.anthropic.claudefordesktop"]
@@ -54,6 +56,16 @@ MODIFIER_MASKS: dict[int, int] = {
     57: 0,  # caps lock: a toggle, never a hold
     63: 0,  # fn / globe
 }
+# Virtual keycode -> canonical chord name (ANSI layout letters and digits, F-keys, modifiers).
+_LETTER_CODES = (  # "_" marks punctuation and other keys that are not chord keys
+    "a s d f h g z x c v _ b q w e r y t 1 2 3 4 6 5 _ 9 7 _ 8 0 _ o u _ i p _ "
+    "l j _ k _ _ _ _ n m _"
+)
+CHORD_CODES: dict[int, str] = {
+    56: "shift", 60: "shift", 59: "ctrl", 62: "ctrl", 58: "alt", 61: "alt", 55: "cmd", 54: "cmd",
+    **{i: c for i, c in enumerate(_LETTER_CODES.split()) if c.isalnum()},
+    **{c: f"f{i + 1}" for i, c in enumerate(_F_CODES)},
+}  # fmt: skip
 MOUSE_BUTTONS = {"x1": 3, "x2": 4}  # CGEvent "other" buttons: back, forward
 
 
@@ -133,7 +145,9 @@ def _ax_trusted() -> bool | None:
 
 def start_key_listener(keys: dict[str, str], sink: Callable[[str, bool], None]) -> bool:
     """Listen for keys {talk, dictate, mouse}; sink(binding|"other"|"esc", is_down) (3, 5)."""
-    by_code, by_button = resolve_keys(keys)
+    chord = chord_mod.parse(keys.get("stop", ""))
+    tracker = chord_mod.Tracker(chord) if chord else None
+    by_code, by_button = resolve_keys({b: n for b, n in keys.items() if b != "stop"})
     try:
         Q = _quartz()
     except ImportError:
@@ -159,11 +173,19 @@ def start_key_listener(keys: dict[str, str], sink: Callable[[str, bool], None]) 
             if mask is None:
                 return event
             down = bool(mask and Q.CGEventGetFlags(event) & mask)
+            if tracker is not None and code in CHORD_CODES:
+                tracker.feed(CHORD_CODES[code], down)
             sink(by_code.get(code, "other"), down)
         elif etype in (Q.kCGEventKeyDown, Q.kCGEventKeyUp):
             if Q.CGEventGetIntegerValueField(event, Q.kCGKeyboardEventAutorepeat):
                 return event
             down = etype == Q.kCGEventKeyDown
+            if (
+                tracker is not None
+                and code in CHORD_CODES
+                and tracker.feed(CHORD_CODES[code], down)
+            ):
+                sink("stop", True)
             if code in by_code:
                 sink(by_code[code], down)
             elif code == ESCAPE_KEYCODE:

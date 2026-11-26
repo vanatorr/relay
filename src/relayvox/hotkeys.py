@@ -15,7 +15,7 @@ from typing import Any
 IDLE, PRESSED, HELD, TAP_WAIT, LATCHED = "idle", "pressed", "held", "tap_wait", "latched"
 DEAD = "dead"  # key still down after a shortcut/discard/auto-send: wait for its release
 # events: "down" | "up" | "other" | "esc" | "tick"
-# actions: "barge", "quiet", "mic_on", "send", "discard", "cancel_pending"
+# actions: "barge", "quiet", "mic_on", "send", "discard", "cancel_pending", "stop"
 
 HOLD_MS = 200  # a hold this long opens the mic
 DOUBLE_TAP_MS = 350  # second press within this latches hands-free
@@ -120,6 +120,8 @@ def resolve_keys(cfg: Any) -> dict[str, str]:
             out[name] = v
     if k.get("mouse"):
         out["mouse"] = k["mouse"]
+    if k.get("stop"):
+        out["stop"] = k["stop"]  # a chord such as "ctrl+alt+x"
     return out
 
 
@@ -134,7 +136,10 @@ def _clock_ms() -> int:
 
 def sink(binding: str, is_down: bool) -> None:
     """Platform listener callback: reduce to (binding, event); never blocks (invariant 4)."""
-    if binding == "other":
+    if binding == "stop":
+        if is_down:
+            _q.put(("stop", "stop"))
+    elif binding == "other":
         _q.put(("*", "other" if is_down else "noop"))
     elif binding == "esc":
         _q.put(("*", "esc" if is_down else "noop"))
@@ -164,6 +169,12 @@ def _handle(
     binding: str, event: str, t: int, on_action: Callable[[str, str], None], plat: Any
 ) -> None:
     if event == "noop":
+        return
+    if binding == "stop":  # the stop key: drop any open recording, then stop speech/sends
+        for b in list(_machines):
+            if _machines[b].state != IDLE:
+                _apply(b, "esc", t, on_action, plat)
+        on_action("stop", "stop")
         return
     if binding == "*":  # keys other than ours go to every active machine
         for b in list(_machines):

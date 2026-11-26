@@ -43,6 +43,7 @@ def clean(text: str) -> str:
     t = re.sub(r"(?<!\w)(?:\.{0,2}/)?(?:[\w.-]+/)+[\w.-]+\.\w+", "a file", t)
     t = redact(t)
     t = re.sub(r"^\s*[-*•]\s+", "", t, flags=re.M)
+    t = re.sub(r"(^|[\s:])\d{1,2}[.)]\s+", r" ", t)  # list markers; "3.11" has no space
     t = re.sub(r"[*_#>|~]+", " ", t)
     return re.sub(r"\s+", " ", t).strip()
 

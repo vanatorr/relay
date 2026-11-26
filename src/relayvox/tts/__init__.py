@@ -11,6 +11,10 @@ import math
 from collections.abc import Iterator
 from typing import Any
 
+from relayvox.tts.models import download_models, voices
+
+__all__ = ["download_models", "synth", "language_note", "voices"]
+
 log = logging.getLogger("relayvox.tts")
 
 _EDGE_VOICES = {"fa": "fa-IR-FaridNeural", "fr": "fr-FR-HenriNeural"}

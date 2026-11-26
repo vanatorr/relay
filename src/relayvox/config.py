@@ -18,6 +18,7 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "dictate": "auto",  # auto: right_alt (Windows/Linux), right_cmd (macOS); "" = off
         "mouse": "",  # "x1" or "x2" to hold a mouse side button
         "latch_auto_end": False,
+        "stop": "ctrl+alt+x",  # chord that stops speech and cancels a pending send; "" = off
     },
     "speech": {
         "max_sentences": 2,
@@ -113,10 +114,30 @@ def _type_ok(default: Any, value: Any) -> bool:
     return isinstance(value, str)
 
 
+def _check_chord(name: str, value: str) -> None:
+    from relayvox.platform import chord
+
+    try:
+        chord.parse(value)
+    except ValueError as e:
+        raise ValueError(f"{name}: {e}") from None
+
+
 def validate(cfg: dict[str, Any]) -> list[str]:
     """Return warnings for unknown keys; raise ValueError naming a bad key (section 12)."""
     warnings: list[str] = []
     for sec, vals in cfg.items():
+        if sec == "hotkeys":  # alias section: hotkeys.stop means keys.stop
+            if not isinstance(vals, dict):
+                raise ValueError("[hotkeys] must be a table")
+            for key, value in vals.items():
+                if key != "stop":
+                    warnings.append(f"unknown key hotkeys.{key}, did you mean keys.{key}?")
+                elif not isinstance(value, str):
+                    raise ValueError(f"hotkeys.stop: expected str, got {value!r}")
+                else:
+                    _check_chord("hotkeys.stop", value)
+            continue
         if sec not in DEFAULTS:
             hint = difflib.get_close_matches(sec, DEFAULTS, n=1)
             tip = f", did you mean [{hint[0]}]?" if hint else ""
@@ -133,6 +154,8 @@ def validate(cfg: dict[str, Any]) -> list[str]:
             if not _type_ok(DEFAULTS[sec][key], value):
                 want = type(DEFAULTS[sec][key]).__name__
                 raise ValueError(f"{sec}.{key}: expected {want}, got {value!r}")
+            if (sec, key) == ("keys", "stop"):
+                _check_chord("keys.stop", value)
             if (sec, key) in _ENUMS and value not in _ENUMS[(sec, key)]:
                 raise ValueError(f"{sec}.{key}: must be one of {', '.join(_ENUMS[(sec, key)])}")
             if (sec, key) in _RANGES:
@@ -181,6 +204,9 @@ def load() -> Config:
                 for key, value in vals.items():
                     if key in cfg[sec]:
                         cfg[sec][key] = value
+        alias = data.get("hotkeys")
+        if isinstance(alias, dict) and "stop" in alias and "stop" not in data.get("keys", {}):
+            cfg["keys"]["stop"] = alias["stop"]
     for sec, vals in DEFAULTS.items():
         for key, default in vals.items():
             name = f"RELAYVOX_{sec}_{key}".upper()
@@ -196,6 +222,7 @@ talk = "auto"        # auto: right_ctrl (Windows/Linux), right_option (macOS)
 dictate = "auto"     # auto: right_alt (Windows/Linux), right_cmd (macOS); "" turns it off
 mouse = ""           # "x1" or "x2" to hold a mouse side button
 latch_auto_end = false
+stop = "ctrl+alt+x"  # stops speech and cancels a pending send; "" turns it off
 
 [speech]
 max_sentences = 2
