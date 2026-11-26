@@ -81,12 +81,31 @@ Restart Relay after changing settings. To run it in the background, use `.\start
 2. Relay picks one line to say: the session's own summary and question when there is one, otherwise the start of its last message, without code, links or file paths.
 3. When you talk, Whisper turns it into text on your machine. Relay works out the target, opens that session through the desktop app's `claude://` link, types your words and presses Enter, then puts your clipboard and window back.
 
-## Coming next
+## Relay v1 (`relayvox`, preview)
 
-- **Ask Relay itself.** "What's the status on all the agents?", "Where's the server fix at?", "Go into more detail on that." Answered without interrupting any session.
-- **Routing by meaning.** "Tell the VPS one to restart nginx" reaches the session working on your server, and Relay asks "which one?" instead of guessing.
-- **Hands-free.** A wake word instead of a key, and messages that send when you stop talking.
-- **macOS and Linux.**
+The rewrite lives in `src/relayvox` and runs next to the script above. It adds push-to-talk on a single key, a numbered "Which one?" question instead of guessing, spoken status and recap answers, aliases, and optional hands-free mode.
+
+```powershell
+.\.venv\Scripts\python -m pip install -e .
+relayvox config          # writes a commented config.toml and prints its path
+relayvox install-hooks --dry-run
+relayvox install-hooks   # keeps a timestamped backup of settings.json
+relayvox doctor          # one ok / warn / fail line per check
+relayvox run
+```
+
+- **Talk:** hold Right Ctrl (Right Option on macOS), speak, release. A tap stops speech or cancels a send in its 0.6 s window. Double-tap to latch hands-free.
+- **Ask Relay:** "status", "recap payments", "where's docs site", "repeat". Answered locally, nothing is sent to a session.
+- **Who gets it:** a number or name ("2, ship it", "tell payments to ship it"), the attached session, then the last session you sent to. If that is not clear, Relay asks "Which one?" and holds your words for 60 s.
+- **Optional, off by default:** the wake word (`[wake] enabled`) and the brain (`[brain] enabled`, which uses the `claude` CLI and your Claude Code login). A brain suggestion is only sent after you say "yes".
+
+| OS | Status |
+|---|---|
+| Windows | Tested |
+| macOS | Untested on hardware |
+| Linux (X11, Wayland via `relayvox ptt`) | Untested on hardware |
+
+Not in v1 yet: sending to the session that is on screen (the app does not say which one it is), `relayvox voices`, and `relayvox models` (models download on first use).
 
 ## Uninstall
 

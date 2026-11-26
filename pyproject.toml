@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "relayvox"
+version = "0.1.0"
+description = "A local voice layer for Claude Code sessions."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = [
+  "faster-whisper>=1.2,<2",  # STT; brings ctranslate2, onnxruntime (also used by Kokoro), Silero VAD
+  "kokoro-onnx>=0.4",        # default voice; Apache 2.0
+  "miniaudio>=1.61",         # playback + capture on all OSes, no system audio lib
+  "numpy>=1.26",
+  "onnxruntime>=1.17",       # declared because wake.py and listen.py use it directly
+  "platformdirs>=4.2",       # config/data/log dirs per OS
+  "psutil>=5.9.8",           # pid alive + process parents (tmux pane match)
+  "pyobjc-framework-Quartz>=10.3; sys_platform == 'darwin'",
+  "pyobjc-framework-Cocoa>=10.3; sys_platform == 'darwin'",
+  "python-xlib>=0.33; sys_platform == 'linux'",
+]
+
+[project.optional-dependencies]
+edge = ["edge-tts>=6.1.12"]
+cuda = ["nvidia-cublas-cu12>=12.4; sys_platform == 'win32' or sys_platform == 'linux'",
+        "nvidia-cudnn-cu12>=9,<10; sys_platform == 'win32' or sys_platform == 'linux'"]
+dev  = ["pytest>=8", "ruff>=0.6", "mypy>=1.11"]
+
+[project.scripts]
+relayvox = "relayvox.cli:main"
+
+[project.gui-scripts]
+relayvox-bg = "relayvox.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/relayvox"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+# v0 files stay at the repo root until integration removes them
+extend-exclude = ["relay.py", "install_hooks.py", "./hook.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+exclude = ["src/relayvox/platform/", "src/relayvox/tts/"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests"]
