@@ -57,12 +57,12 @@ You hear a beep when recording starts and another when it stops.
 
 ## Who your message goes to
 
-- "Tell **payments fix**, commit it and push" sends one message to that session. Names match loosely, so close is fine.
+- "Tell **payments fix**, commit it and push" (or "tell payments fix to commit it") sends one message to that session. Say the session's title; close is fine. If Relay doesn't recognise a name, it reads out your session names and sends nothing.
 - "Talk to **marketing**" keeps sending to that session until you switch.
-- Anything else goes to the session you're attached to, then the last one that spoke, then the one on screen. If none of those fits, Relay asks "Who should I send that to?".
+- Anything else goes to the session on screen when the Claude window is in front, otherwise to the one you're attached to or last sent to. If none of those fits, Relay asks "Who should I send that to?".
 - "List sessions" reads out their names. "Stop" or "be quiet" stops speech.
 
-Before sending, Relay says "To {name}." and waits 1.5 seconds. Press the talk key or Ctrl+Alt+X during that pause to cancel.
+Whenever the target changes, Relay says "To {name}." before sending, then waits a moment. Press the talk key or the stop key during that pause to cancel.
 
 ## Settings
 

@@ -351,7 +351,7 @@ def clean_for_speech(text):
     t = re.sub(r"[A-Za-z]:\\[^\s,;]+", "a file", t)
     t = re.sub(r"(?<!\w)(?:\.{0,2}/)?(?:[\w.-]+/)+[\w.-]+\.\w+", "a file", t)
     t = re.sub(r"[*_#>|~]+", " ", t)
-    t = re.sub(r"^\s*[-•]\s+", "", t, flags=re.M)
+    t = re.sub(r"^\s*[-Ã¢â‚¬Â¢]\s+", "", t, flags=re.M)
     t = re.sub(r"\s+", " ", t).strip()
     return t[:900]
 
@@ -509,7 +509,7 @@ def play_with_winsound(samples, nch, sr, stop_flag):
 
 # --------------------------------------------------------------------------- hub state
 speaker = Speaker()
-state = {"attached": None, "last_speaker": None, "pending": {}}
+state = {"attached": None, "last_speaker": None, "last_sent": None, "pending": {}}
 state_lock = threading.Lock()
 
 
@@ -523,15 +523,19 @@ def chime():
 def announce(session_id, cwd, text):
     s = session_by_id(session_id)
     name = s["name"] if s else (os.path.basename(cwd or "") or "A session")
-    if s and s["host"]:
-        with state_lock:
-            state["last_speaker"] = s["host"]
+    host = s["host"] if s else None
+    with state_lock:
+        # Only say the name when a different session speaks than the one you're already with.
+        same = host is not None and host in (state["last_speaker"], state["attached"])
+        if host:
+            state["last_speaker"] = host
+    spoken = text if same else f"{' '.join(name.split()[:3])}. {text}"
     if claude_in_front() and not CFG.get("speak_when_claude_focused"):
         chime()
         log("chime (Claude in front):", name, "|", text)
         return
     log("say:", name, "|", text)
-    speaker.say(f"{name}. {text}")
+    speaker.say(spoken)
 
 
 def handle_event(ev):
@@ -681,7 +685,8 @@ def transcribe(pcm):
         return ""
     names = ", ".join(sorted({s["name"] for s in load_sessions()}))
     segs, _ = _model["m"].transcribe(
-        pcm, language=CFG.get("whisper_language"), beam_size=5, vad_filter=True,
+        pcm, language=CFG.get("whisper_language"), beam_size=1, vad_filter=True,
+        condition_on_previous_text=False, without_timestamps=True,
         initial_prompt=f"Claude Code sessions: {names}." if names else None)
     text = " ".join(s.text.strip() for s in segs).strip()
     text = FILLERS.sub("", text)
@@ -721,7 +726,7 @@ def deliver(session, text):
     if not claude_in_front():
         force_foreground(user32.FindWindowW(None, "Claude"))
         time.sleep(0.3)
-    time.sleep(0.9)  # let the session view and its message box mount
+    time.sleep(0.5)  # let the session view and its message box mount
     paste_text(text, press_enter=True)
     log("sent to", session["name"], "|", text)
     if CFG.get("return_focus_after_send") and not was_claude:
@@ -755,23 +760,34 @@ def handle_talk(text):
     m = TELL_RE.match(text)
     if m:
         target, body = split_target(m.group(1))
+        body = re.sub(r"^to\s+", "", body, flags=re.I)  # "tell X to stop" -> "stop"
         if not target:
-            target, body = None, text
+            names = [s["name"] for s in load_sessions() if s["host"]]
+            speaker.say("I didn't catch a session name. Your sessions are: " + ", ".join(names) + ".")
+            return
     if target is None:
-        with state_lock:
-            hid = state["attached"] or state["last_speaker"]
-        if not hid and claude_in_front():
-            paste_text(text, press_enter=True)  # the session on screen
+        # Unnamed: the session you're looking at, else the one you attached to or last sent to.
+        # Never the one that spoke last: that silently sent messages to the wrong chat.
+        if claude_in_front():
+            paste_text(text, press_enter=True)
             log("sent to on-screen session |", text)
             return
+        with state_lock:
+            hid = state["attached"] or state.get("last_sent")
         target = session_by_id(hid) if hid else None
     if not target or not target["host"]:
-        speaker.say("Who should I send that to? Say talk to, then a session name.")
+        speaker.say("Who should I send that to? Say tell, then a session name.")
         return
+    with state_lock:
+        changed = state.get("last_sent") != target["host"]
+        state["last_sent"] = target["host"]
+    if changed:  # say who it goes to whenever that changes, so a wrong target is heard at once
+        speaker.say_now(f"To {' '.join(target['name'].split()[:3])}.")
     # Short spoken confirmation with a cancel window (Ctrl+Alt+X or the talk key cancels).
     cancel.clear()
-    speaker.say_now(f"To {target['name']}.")
-    if cancel.wait(CFG.get("cancel_window_sec", 1.5)):
+    log("to", target["name"], "(press stop to cancel)")
+    winsound.Beep(1100, 60)  # a tick instead of a spoken "To {name}": saves ~3 s
+    if cancel.wait(CFG.get("cancel_window_sec", 0.6)):
         speaker.say("Cancelled.")
         return
     deliver(target, body)
