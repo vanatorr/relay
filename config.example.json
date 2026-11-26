@@ -12,9 +12,9 @@
   "whisper_model": "large-v3-turbo",
   "whisper_language": null,
   "cuda_dll_dir": null,
-  "speak_when_claude_focused": false,
+  "speak_when_claude_focused": true,
   "return_focus_after_send": true,
-  "cancel_window_sec": 1.5,
+  "cancel_window_sec": 0.6,
   "hotkeys": {
     "talk": "ctrl+shift+space",
     "dictate": "ctrl+alt+d",

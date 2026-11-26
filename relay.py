@@ -1,7 +1,7 @@
 """Relay: voice for Claude Code sessions (Windows).
 
 - Sessions speak: Claude Code hooks POST to /event; the hub speaks a short status line,
-  one at a time, prefixed with the session's name. Silent (chime) while Claude is in front.
+  one at a time, prefixed with the session's name. Speaks even while Claude is in front (set speak_when_claude_focused to false for a chime).
 - You talk back: a hotkey toggles recording; local Whisper (GPU) transcribes; the hub routes
   the text to a session by opening it in the Claude app and typing it as you would.
 """
@@ -310,6 +310,7 @@ class Speaker:
         self._speak(clean_for_speech(text))
 
     def stop(self):
+        """Stop speaking and drop everything queued (the stop key, "be quiet", mute)."""
         self.stop_flag.set()
         try:
             while True:
@@ -317,15 +318,27 @@ class Speaker:
         except queue.Empty:
             pass
 
+    def hush(self):
+        """Cut the current line because you started talking; it and the rest replay afterwards."""
+        if self.current:  # mid-line (synthesising or playing)
+            self.replay = self.current
+        self.stop_flag.set()
+
     def _run(self):
+        self.replay = self.current = None
         while True:
-            text = self.q.get()
+            text, self.replay = (self.replay, None) if self.replay else (self.q.get(), None)
+            while recorder.active:  # never talk over you or into the mic: hold updates until you're done
+                time.sleep(0.1)
             if self.muted:
                 continue
+            self.current = text
             try:
                 self._speak(text)
             except Exception:
                 log("speak error", traceback.format_exc())
+            finally:
+                self.current = None
 
     def _speak(self, text):
         if not text:
@@ -530,7 +543,7 @@ def announce(session_id, cwd, text):
         if host:
             state["last_speaker"] = host
     spoken = text if same else f"{' '.join(name.split()[:3])}. {text}"
-    if claude_in_front() and not CFG.get("speak_when_claude_focused"):
+    if claude_in_front() and not CFG.get("speak_when_claude_focused", True):
         chime()
         log("chime (Claude in front):", name, "|", text)
         return
@@ -614,7 +627,7 @@ class Recorder:
         self.dev = None
 
     def start(self, mode):
-        speaker.stop()  # barge-in: talking cuts the hub off
+        speaker.hush()  # barge-in: talking cuts speech off, but queued updates are kept
         self.chunks, self.mode, self.active = [], mode, True
 
         def gen():
