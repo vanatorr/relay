@@ -1,0 +1,20 @@
+{
+  "port": 47811,
+  "tts": "windows",
+  "windows_rate": 1,
+  "edge_voice": "en-US-AvaMultilingualNeural",
+  "elevenlabs_voice_id": "21m00Tcm4TlvDq8ikWAM",
+  "elevenlabs_model": "eleven_flash_v2_5",
+  "whisper_model": "large-v3-turbo",
+  "whisper_language": null,
+  "cuda_dll_dir": null,
+  "speak_when_claude_focused": false,
+  "return_focus_after_send": true,
+  "cancel_window_sec": 1.5,
+  "hotkeys": {
+    "talk": "ctrl+shift+space",
+    "dictate": "ctrl+alt+d",
+    "stop": "ctrl+alt+x",
+    "mute": "ctrl+alt+n"
+  }
+}

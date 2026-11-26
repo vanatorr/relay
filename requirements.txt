@@ -1,0 +1,8 @@
+faster-whisper>=1.2.1
+miniaudio>=1.71
+numpy>=2.0
+# Optional: nicer free voices (sends text to Microsoft)
+edge-tts>=7.2
+# Optional: run Whisper on an NVIDIA GPU (much faster). Skip on CPU-only PCs.
+nvidia-cublas-cu12
+nvidia-cudnn-cu12>=9,<10
