@@ -75,6 +75,7 @@ Defaults are in `config.example.json`. To change any of them, put only the keys 
 | Key | What it does |
 |---|---|
 | `tts` | `"windows"` (offline, default), `"edge"` (free neural voices, sends text to Microsoft) or `"elevenlabs"` (needs `ELEVENLABS_API_KEY=...` in a `.env` file next to `relay.py`, or as an environment variable). |
+| `"tts": "kokoro"` | Local neural voice (Kokoro-82M, Apache 2.0), offline and free. Run `pip install kokoro-onnx`, then put `kokoro-v1.0.onnx` and `voices-v1.0.bin` from the [kokoro-onnx releases](https://github.com/thewh1teagle/kokoro-onnx/releases/tag/model-files-v1.0) in a `models` folder next to `relay.py`. `kokoro_voice` picks the voice (`bm_george`, `bm_lewis`, `bf_emma`, `af_heart`, ...). |
 | `elevenlabs_voice_id`, `elevenlabs_model` | Which ElevenLabs voice and model to use. Flash is the fastest; Multilingual v2 sounds more natural. |
 | `edge_voice` | Which Edge voice to use. |
 | `whisper_model` | Default `large-v3-turbo`. Use `small` on slow PCs. |
