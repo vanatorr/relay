@@ -140,6 +140,11 @@ def test_first_token_timeout(monkeypatch: pytest.MonkeyPatch, fake: Any) -> None
     brain.start({"brain": {"enabled": True}})
     got, _ = run()
     assert got == [brain.LINE_SLOW]
+    # The timeout restarts the brain on a thread; let it finish so it can't
+    # replace or kill the next test's process.
+    end = time.monotonic() + 3
+    while not fake["proc"].killed and time.monotonic() < end:
+        time.sleep(0.01)
 
 
 def test_cancel_returns_none(fake: Any) -> None:
