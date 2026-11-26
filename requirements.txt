@@ -6,3 +6,4 @@ edge-tts>=7.2
 # Optional: run Whisper on an NVIDIA GPU (much faster). Skip on CPU-only PCs.
 nvidia-cublas-cu12
 nvidia-cudnn-cu12>=9,<10
+kokoro-onnx>=0.4  # optional: local neural voice

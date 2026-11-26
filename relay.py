@@ -370,6 +370,8 @@ def synth(text):
             return synth_elevenlabs(text)
         if eng == "edge":
             return synth_edge(text)
+        if eng == "kokoro":
+            return synth_kokoro(text)
     except Exception:
         log("tts engine failed, falling back to windows:", traceback.format_exc())
     return synth_windows(text)
@@ -416,6 +418,31 @@ def synth_edge(text):
         return bytes(buf)
 
     return asyncio.run(go())
+
+
+_kokoro = {"k": None}
+
+
+def synth_kokoro(text):
+    """Local neural voice (Kokoro-82M, Apache 2.0). Model files live in models/ next to relay.py."""
+    import io
+    import wave
+
+    if _kokoro["k"] is None:
+        from kokoro_onnx import Kokoro
+        d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+        _kokoro["k"] = Kokoro(os.path.join(d, "kokoro-v1.0.onnx"), os.path.join(d, "voices-v1.0.bin"))
+    voice = CFG.get("kokoro_voice", "bm_george")
+    samples, sr = _kokoro["k"].create(text, voice=voice, speed=float(CFG.get("kokoro_speed", 1.0)),
+                                      lang="en-gb" if voice[:1] == "b" else "en-us")
+    pcm = (np.clip(samples, -1, 1) * 32767).astype(np.int16).tobytes()
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes(pcm)
+    return buf.getvalue()
 
 
 def synth_elevenlabs(text):
@@ -593,8 +620,17 @@ class Recorder:
                 if data:
                     self.chunks.append(bytes(data))
 
+        dev_id, want = None, (CFG.get("mic") or "").lower()
+        if want:
+            for d in miniaudio.Devices().get_captures():
+                if want in d["name"].lower():
+                    dev_id = d["id"]
+                    break
+            else:
+                log(f"mic '{want}' not found, using the Windows default")
         self.dev = miniaudio.CaptureDevice(input_format=miniaudio.SampleFormat.SIGNED16,
-                                           nchannels=1, sample_rate=16000, buffersize_msec=200)
+                                           nchannels=1, sample_rate=16000, buffersize_msec=200,
+                                           device_id=dev_id)
         g = gen()
         next(g)
         self.dev.start(g)
@@ -609,6 +645,12 @@ class Recorder:
         self.active = False
         winsound.Beep(660, 80)
         pcm = np.frombuffer(b"".join(self.chunks), dtype=np.int16).astype(np.float32) / 32768.0
+        peak = float(np.abs(pcm).max()) if len(pcm) else 0.0
+        log(f"recorded {len(pcm) / 16000:.1f}s, peak {peak:.3f}")
+        if peak < 0.005:
+            log("the mic is silent: set \"mic\" in config.json to a microphone that works")
+        elif peak < 0.5:
+            pcm = pcm * min(0.5 / peak, 30.0)  # quiet mic: bring speech up to a level Whisper likes
         return pcm, self.mode
 
 
