@@ -297,13 +297,29 @@ class Speaker:
         self.stop_flag = threading.Event()
         self.speaking = threading.Event()
         self.muted = False
+        self.replay = self.current = None
+        self.current_host = self.replay_host = None
+        self.replay_t = self.current_t = 0.0
+        self.cutoff = {}
+        self.finished = self.is_replay = False
         threading.Thread(target=self._run, daemon=True).start()
 
-    def say(self, text, priority=False):
+    def say(self, text, priority=False, host=None):
         text = clean_for_speech(text)
         if not text or self.muted:
             return
-        self.q.put(text)
+        self.q.put((text, host, time.time()))
+
+    def drop_from(self, host):
+        """You just answered this session: its queued, held or playing lines are stale, so drop them."""
+        if not host:
+            return
+        # Lines that arrived while you were talking are new to you, so they still play.
+        self.cutoff[host] = recorder.started or time.time()
+        if self.replay_host == host:
+            self.replay = self.replay_host = None
+        if self.current_host == host and self.current_t < self.cutoff[host]:
+            self.stop_flag.set()
 
     def say_now(self, text):
         """Speak immediately, blocking the caller (used for short confirmations)."""
@@ -318,27 +334,38 @@ class Speaker:
         except queue.Empty:
             pass
 
+    def drop_held(self):
+        """Forget the line that was cut off when you started talking (you answered it)."""
+        self.replay = self.replay_host = None
+
     def hush(self):
         """Cut the current line because you started talking; it and the rest replay afterwards."""
-        if self.current:  # mid-line (synthesising or playing)
-            self.replay = self.current
+        # Replay only a line genuinely cut mid-synth/playback, and only once (never a replay of a replay).
+        if self.current and not self.finished and not self.is_replay and not self.replay:
+            self.replay, self.replay_host, self.replay_t = self.current, self.current_host, self.current_t
         self.stop_flag.set()
 
     def _run(self):
         self.replay = self.current = None
         while True:
-            text, self.replay = (self.replay, None) if self.replay else (self.q.get(), None)
+            text, host, t = (self.replay, self.replay_host, self.replay_t) if self.replay else self.q.get()
+            self.is_replay = bool(self.replay)
             while recorder.active:  # never talk over you or into the mic: hold updates until you're done
                 time.sleep(0.1)
-            if self.muted:
-                continue
-            self.current = text
+            if self.is_replay and not self.replay:
+                continue  # the held line was dropped because you answered that session meanwhile
+            self.replay = self.replay_host = None
+            if self.muted or (host and t < self.cutoff.get(host, 0)):
+                continue  # muted, or you already answered this session after it was said
+            self.finished = False
+            self.current, self.current_host, self.current_t = text, host, t
             try:
                 self._speak(text)
             except Exception:
                 log("speak error", traceback.format_exc())
             finally:
-                self.current = None
+                self.finished = True
+                self.current = self.current_host = None
 
     def _speak(self, text):
         if not text:
@@ -371,6 +398,7 @@ def clean_for_speech(text):
 
 def first_sentences(text, n=2, limit=300):
     t = clean_for_speech(text)
+    t = re.sub(r"(^|[\s:])\d{1,2}[.)]\s+", r"\1 ", t)  # drop numbered-list markers ("next: 1. I wait")
     parts = re.split(r"(?<=[.!?])\s+", t)
     out = " ".join(parts[:n])
     return out[:limit]
@@ -522,7 +550,7 @@ def play_with_winsound(samples, nch, sr, stop_flag):
 
 # --------------------------------------------------------------------------- hub state
 speaker = Speaker()
-state = {"attached": None, "last_speaker": None, "last_sent": None, "pending": {}}
+state = {"attached": None, "last_speaker": None, "last_sent": None, "pending": {}, "spoken_recap": {}}
 state_lock = threading.Lock()
 
 
@@ -548,7 +576,7 @@ def announce(session_id, cwd, text):
         log("chime (Claude in front):", name, "|", text)
         return
     log("say:", name, "|", text)
-    speaker.say(spoken)
+    speaker.say(spoken, host=host)
 
 
 def handle_event(ev):
@@ -559,18 +587,20 @@ def handle_event(ev):
         return  # subagent chatter stays silent
     if kind == "PostToolUse" and "wrap_up" in (ev.get("tool_name") or ""):
         ti = ev.get("tool_input") or {}
+        text = ((ti.get("recap") or "") + " " + (ti.get("ask") or "")).strip()
         with state_lock:
-            state["pending"][sid] = {"recap": ti.get("recap") or "", "ask": ti.get("ask") or ""}
+            state["spoken_recap"][sid] = bool(text)
+        if text:
+            announce(sid, cwd, text)
         return
     if kind == "Stop":
         if ev.get("stop_hook_active"):
             return
         with state_lock:
-            p = state["pending"].pop(sid, None)
-        if p and (p["recap"] or p["ask"]):
-            text = (p["recap"] + " " + p["ask"]).strip()
-        else:
-            text = first_sentences(ev.get("last_assistant_message") or "")
+            already = state["spoken_recap"].pop(sid, False)
+        if already:
+            return  # the wrap_up recap was already spoken this turn
+        text = first_sentences(ev.get("last_assistant_message") or "")
         if text:
             announce(sid, cwd, text)
         return
@@ -622,6 +652,7 @@ class Handler(BaseHTTPRequestHandler):
 class Recorder:
     def __init__(self):
         self.active = False
+        self.started = 0.0
         self.mode = None
         self.chunks = []
         self.dev = None
@@ -629,6 +660,7 @@ class Recorder:
     def start(self, mode):
         speaker.hush()  # barge-in: talking cuts speech off, but queued updates are kept
         self.chunks, self.mode, self.active = [], mode, True
+        self.started = time.time()  # kept after stop: it dates the message being sent
 
         def gen():
             _ = yield
@@ -730,6 +762,7 @@ def split_target(rest):
 
 def deliver(session, text):
     """Open the session in the Claude app and type the message, as the user would."""
+    speaker.drop_from(session.get("host"))  # anything it was still saying is answered now
     prev = fg_window()
     was_claude = window_proc(prev) == "claude.exe"
     os.startfile(f"claude://claude.ai/epitaxy/{session['host']}")
@@ -782,6 +815,7 @@ def handle_talk(text):
         # Unnamed: the session you're looking at, else the one you attached to or last sent to.
         # Never the one that spoke last: that silently sent messages to the wrong chat.
         if claude_in_front():
+            speaker.drop_held()  # the line you talked over is the one you just answered
             paste_text(text, press_enter=True)
             log("sent to on-screen session |", text)
             return
