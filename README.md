@@ -74,7 +74,7 @@ Defaults are in `config.example.json`. To change any of them, put only the keys 
 
 | Key | What it does |
 |---|---|
-| `tts` | `"windows"` (offline, default), `"edge"` (free neural voices, sends text to Microsoft) or `"elevenlabs"` (needs the `ELEVENLABS_API_KEY` environment variable). |
+| `tts` | `"windows"` (offline, default), `"edge"` (free neural voices, sends text to Microsoft) or `"elevenlabs"` (needs `ELEVENLABS_API_KEY=...` in a `.env` file next to `relay.py`, or as an environment variable). |
 | `elevenlabs_voice_id`, `elevenlabs_model` | Which ElevenLabs voice and model to use. Flash is the fastest; Multilingual v2 sounds more natural. |
 | `edge_voice` | Which Edge voice to use. |
 | `whisper_model` | Default `large-v3-turbo`. Use `small` on slow PCs. |

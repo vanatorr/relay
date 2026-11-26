@@ -37,6 +37,19 @@ def load_config():
     return cfg
 
 
+def load_dotenv():
+    """KEY=value lines from .env next to relay.py (not in git). Real env vars win."""
+    path = os.path.join(HERE, ".env")
+    if not os.path.exists(path):
+        return
+    for line in open(path, encoding="utf-8"):
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
+
+load_dotenv()
 CFG = load_config()
 LOG = os.path.join(HERE, "relay.log")
 SESSIONS_DIR = os.path.join(os.path.expanduser("~"), ".claude", "sessions")
