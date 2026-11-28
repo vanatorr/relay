@@ -28,5 +28,8 @@
     "dictate": "ctrl+alt+d",
     "stop": "ctrl+alt+x",
     "mute": "ctrl+alt+n"
+  },
+  "projects": {
+    "my project": "chan_REPLACE_WITH_PROJECT_ID"
   }
 }

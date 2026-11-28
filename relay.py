@@ -260,7 +260,28 @@ def load_sessions():
             "status": d.get("status"),
             "updated": d.get("updatedAt") or 0,
         })
+    out.extend(project_sessions())
     return out
+
+
+def project_sessions():
+    """Claude projects from config "projects": {"spoken name": "chan_..."}. Talking to a project means
+    talking to its orchestrator chat, which the project link opens; the orchestrator sees its threads."""
+    out = []
+    for name, chan in (CFG.get("projects") or {}).items():
+        chan = str(chan).strip()
+        if not re.fullmatch(r"chan_[A-Za-z0-9]{10,60}", chan):
+            continue
+        out.append({"id": "project:" + chan, "host": "project:" + chan, "name": name, "cwd": "",
+                    "status": "", "updated": 0, "project": True})
+    return out
+
+
+def session_link(host):
+    """Deep link that opens a chat: a local session by its host id, or a project's orchestrator."""
+    if str(host).startswith("project:"):
+        return f"claude://claude.ai/code/project/{host[len('project:'):]}"
+    return f"claude://claude.ai/epitaxy/{host}"
 
 
 def session_by_id(sid):
@@ -841,7 +862,7 @@ def maybe_auto_switch(host, is_replay=False):
     with state_lock:
         state["shown"] = host
     log("auto switch to", host)
-    os.startfile(f"claude://claude.ai/epitaxy/{host}")
+    os.startfile(session_link(host))
     time.sleep(0.4)  # let the chat open before its reply starts
 
 
@@ -1074,7 +1095,7 @@ def deliver(session, text):
     speaker.drop_from(session.get("host"))  # anything it was still saying is answered now
     prev = fg_window()
     was_claude = window_proc(prev) == "claude.exe"
-    os.startfile(f"claude://claude.ai/epitaxy/{session['host']}")
+    os.startfile(session_link(session["host"]))
     with state_lock:
         state["shown"] = session["host"]
     t0 = time.time()
@@ -1083,7 +1104,7 @@ def deliver(session, text):
     if not claude_in_front():
         force_foreground(user32.FindWindowW(None, "Claude"))
         time.sleep(0.3)
-    time.sleep(0.5)  # let the session view and its message box mount
+    time.sleep(1.5 if session.get("project") else 0.5)  # let the chat view and its message box mount
     paste_text(text, press_enter=True)
     log("sent to", session["name"], "|", text)
     if CFG.get("return_focus_after_send") and not was_claude:
