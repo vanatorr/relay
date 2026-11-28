@@ -749,6 +749,41 @@ def play_sentences(text, stop_flag):
     dev.close()
 
 
+# --------------------------------------------------------------------------- earcons
+_EARCONS = {}
+
+
+def _earcon_path(name, notes):
+    """Soft sine notes with a quick fade, written once to a temp wav: rising = start, falling = end."""
+    import wave
+    if name in _EARCONS:
+        return _EARCONS[name]
+    sr, out = 44100, []
+    for hz in notes:
+        n = int(sr * 0.09)
+        t = np.arange(n) / sr
+        env = np.minimum(1.0, t / 0.005) * np.exp(-t * 28)
+        out.append(np.sin(2 * np.pi * hz * t) * env)
+    pcm = (np.concatenate(out) * 0.35 * float(CFG.get("earcon_volume", 1.0)) * 32767).astype(np.int16)
+    path = os.path.join(tempfile.gettempdir(), f"relay_{name}_{os.getpid()}.wav")
+    with wave.open(path, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes(pcm.tobytes())
+    _EARCONS[name] = path
+    return path
+
+
+def earcon(kind):
+    """start: rising C-G, end: falling G-C. Async so the mic opens without delay."""
+    notes = {"start": (523, 784), "end": (784, 523)}[kind]
+    try:
+        winsound.PlaySound(_earcon_path(kind, notes), winsound.SND_FILENAME | winsound.SND_ASYNC)
+    except Exception:
+        winsound.Beep(880 if kind == "start" else 440, 80)
+
+
 def play_with_winsound(samples, nch, sr, stop_flag):
     import wave
     path = os.path.join(tempfile.gettempdir(), f"relay_{os.getpid()}.wav")
@@ -914,7 +949,7 @@ class Recorder:
         g = gen()
         next(g)
         self.dev.start(g)
-        winsound.Beep(880, 80)
+        earcon("start")
         log("recording", mode)
 
     def stop(self):
@@ -923,7 +958,7 @@ class Recorder:
         time.sleep(0.25)  # keep the last word
         self.dev.close()
         self.active = False
-        winsound.Beep(660, 80)
+        earcon("end")
         pcm = np.frombuffer(b"".join(self.chunks), dtype=np.int16).astype(np.float32) / 32768.0
         peak = float(np.abs(pcm).max()) if len(pcm) else 0.0
         log(f"recorded {len(pcm) / 16000:.1f}s, peak {peak:.3f}")
