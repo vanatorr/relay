@@ -1007,7 +1007,7 @@ def transcribe(pcm):
 ATTACH_RE = re.compile(r"^(?:talk to|switch to|go to|attach to|connect to)\s+(.+?)[.!]?$", re.I)
 # Optional filler, then the verb. Speech-to-text often mishears "tell" (tel, tall, till ...).
 TELL_RE = re.compile(
-    r"^(?:(?:also|and|so|ok|okay|hey|um|uh|please|i['’]ll|i\s+will|can\s+you|could\s+you|go)[,\s]+)*(tell|ask|message|tel|tal|tall|till|tale|tail)[,\s]+(.+)$",
+    r"^(?:(?:also|and|so|ok|okay|hey|um|uh|yeah|yes|right|alright|now|please|i['’]ll|i\s+will|can\s+you|could\s+you|go)[,\s]+)*(tell|ask|message|tel|tal|tall|till|tale|tail)[,\s]+(.+)$",
     re.I)
 TELL_EXACT = ("tell", "ask", "message")
 AUTO_SWITCH_RE = re.compile(
