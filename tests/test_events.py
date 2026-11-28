@@ -134,3 +134,8 @@ def test_clean_strips_list_markers_but_keeps_versions():
     assert "I wait." in out and "I test." in out
     assert "Python 3.11" in events.clean("Use Python 3.11 here.")
     assert "v1.2" in events.clean("Released v1.2 today.")
+
+
+def test_clean_lines_become_sentences_and_ids_dropped():
+    out = events.clean("## Done\n- fixed build -> tests pass\n- pushed 3f2a9c1d to session_01AbCd & chan_x")
+    assert out == "Done. fixed build to tests pass. pushed to and"

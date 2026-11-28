@@ -25,6 +25,7 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "max_chars": 240,
         "speak_when_claude_focused": True,
         "volume": 0.6,
+        "sentence_pause_ms": 280,  # silence between spoken sentences
     },
     "tts": {
         "engine": "kokoro",  # kokoro | elevenlabs | edge | system
@@ -73,6 +74,7 @@ _RANGES: dict[tuple[str, str], tuple[float, float]] = {
     ("speech", "max_sentences"): (1, 10),
     ("speech", "max_chars"): (40, 2000),
     ("speech", "volume"): (0, 1),
+    ("speech", "sentence_pause_ms"): (0, 3000),
     ("tts", "speed"): (0.5, 2.0),
     ("audio", "max_gain"): (1, 100),
     ("wake", "threshold"): (0, 1),
@@ -229,6 +231,7 @@ max_sentences = 2
 max_chars = 240
 speak_when_claude_focused = true   # false = chime only while Claude is in front
 volume = 0.6
+sentence_pause_ms = 280          # silence between spoken sentences
 
 [tts]
 engine = "kokoro"    # kokoro | elevenlabs | edge | system

@@ -20,6 +20,14 @@ _KEY = re.compile(
 )
 
 
+_IDS = [
+    re.compile(r"\b(?:session|cse|cmsg|chan)_[A-Za-z0-9_-]+", re.I),
+    re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I),
+    re.compile(r"\b(?=[0-9a-f]*\d)[0-9a-f]{7,}\b", re.I),
+    re.compile(r"\b\d{6,}\b"),
+]
+
+
 def configure(max_sentences: int = 2, max_chars: int = 240) -> None:
     """Set speech.max_sentences / speech.max_chars used by parse()."""
     _LIMITS["max_sentences"] = max_sentences
@@ -42,9 +50,21 @@ def clean(text: str) -> str:
     t = re.sub(r"[A-Za-z]:\\[^\s,;]+", "a file", t)
     t = re.sub(r"(?<!\w)(?:\.{0,2}/)?(?:[\w.-]+/)+[\w.-]+\.\w+", "a file", t)
     t = redact(t)
-    t = re.sub(r"^\s*[-*•]\s+", "", t, flags=re.M)
-    t = re.sub(r"(^|[\s:])\d{1,2}[.)]\s+", r" ", t)  # list markers; "3.11" has no space
-    t = re.sub(r"[*_#>|~]+", " ", t)
+    for rx in _IDS:
+        t = rx.sub("", t)
+    t = re.sub(r"\s*(?:->|=>|→)\s*", " to ", t)
+    t = re.sub(r"\s*&\s*", " and ", t)
+    t = re.sub(r"\be\.g\.,?", "for example,", t, flags=re.I)
+    t = re.sub(r"\bi\.e\.,?", "that is,", t, flags=re.I)
+    lines = []
+    for ln in t.splitlines():  # every line, bullet and heading ends like a sentence
+        ln = re.sub(r"^\s*(?:[-*•]|\d{1,2}[.)]|#{1,6})\s+", "", ln)
+        ln = " ".join(re.sub(r"[*_#>|~]+", " ", ln).split())
+        if re.search(r"\w", ln):
+            lines.append(ln)
+    # Lines before the last end like sentences; a single unpunctuated line is left as it was.
+    t = " ".join(ln if ln[-1] in ".!?:" or i == len(lines) - 1 else ln + "." for i, ln in enumerate(lines))
+    t = re.sub(r"(^|[\s:])\d{1,2}[.)]\s+", r" ", t)  # inline list markers; "3.11" has no space
     return re.sub(r"\s+", " ", t).strip()
 
 

@@ -65,6 +65,7 @@ What you can say:
 - **"Tell payments fix to commit it and push."** One message to that session. A close match on the name is enough.
 - **"Talk to docs site."** Everything you say goes there until you switch.
 - **Anything else** goes to the session on screen, or the one you last talked to.
+- **"Auto switch on"** or **"auto switch off"** (also "turn off auto switch") changes whether the speaking session's chat opens, until Relay restarts.
 - **"List sessions"** reads out what is open. **"Be quiet"** stops speech.
 
 When the target changes, Relay says "To payments fix." first, so a wrong target is heard before it is sent, with a moment to cancel.
@@ -81,6 +82,9 @@ Put only what you want to change in `config.json` next to `relay.py`. Defaults a
 |---|---|
 | `tts` | `"kokoro"` (local neural voice, recommended), `"windows"` (built in, offline), `"edge"` (free Microsoft voices, online) or `"elevenlabs"` (needs `ELEVENLABS_API_KEY` in a `.env` file). |
 | `kokoro_voice`, `kokoro_speed` | Kokoro voice (`bm_george`, `bm_lewis`, `bf_emma`, `af_heart`, `ff_siwis` for French, ...) and speed. |
+| `sentence_pause_ms`, `paragraph_pause_ms` | Silence between spoken sentences (default 280) and after a paragraph, list or heading (default 600). Each sentence is synthesized separately, so the next one is ready while the current one plays. |
+| `auto_switch` | `true` by default. When a session starts speaking, open its chat so you see what it is talking about. Skipped when that chat is already on screen, while you are recording, and for replays. Say "auto switch off" or "auto switch on" to change it until Relay restarts. |
+| `auto_switch_only_when_claude_in_front` | `true` by default: only switch while the Claude window is in front, so another app never loses focus. |
 | `mic` | Part of your microphone's name. Quiet mics are boosted automatically. |
 | `whisper_model` | Default `large-v3-turbo`. Use `small` on slower PCs. |
 | `whisper_language` | `null` detects the language each time. `"en"` or `"fr"` locks it. |
@@ -184,6 +188,8 @@ Known gap: the Claude desktop app does not say which session is on screen, so v1
 - Hook installers edit `settings.json` only after making a backup, and never touch hooks that are not theirs.
 
 ## Config (v1)
+
+Spoken sentences are separated by `speech.sentence_pause_ms` (default 280) of silence.
 
 `relayvox config` writes a commented `config.toml` and prints where it is. Change only what you need. Any setting can also be set from the environment as `RELAYVOX_<SECTION>_<KEY>`, for example `RELAYVOX_TTS_VOICE=bm_lewis`. Unknown keys produce a warning naming the closest match.
 

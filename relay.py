@@ -154,6 +154,16 @@ def claude_in_front():
     return window_proc(fg_window()) == "claude.exe"
 
 
+def should_auto_switch(host, shown, enabled, only_in_front, in_front, recording, is_replay):
+    """Open the speaking session's chat? Never for replays, a session already on screen, while you
+    record, or (by default) when another app is in front."""
+    if not enabled or not host or is_replay or recording:
+        return False
+    if host == shown:
+        return False
+    return in_front or not only_in_front
+
+
 def force_foreground(hwnd):
     if not hwnd:
         return
@@ -360,6 +370,8 @@ class Speaker:
             self.finished = False
             self.current, self.current_host, self.current_t = text, host, t
             try:
+                if host:
+                    maybe_auto_switch(host, self.is_replay)
                 self._speak(text)
             except Exception:
                 log("speak error", traceback.format_exc())
@@ -371,34 +383,119 @@ class Speaker:
         if not text:
             return
         self.stop_flag.clear()
-        t0 = time.time()
-        audio = synth(text)
-        log(f"synth {len(audio or b'')} bytes in {time.time() - t0:.1f}s")
-        if audio and not self.stop_flag.is_set():
-            self.speaking.set()
-            try:
-                play_audio(audio, self.stop_flag)
-            finally:
-                self.speaking.clear()
+        self.speaking.set()
+        try:
+            play_sentences(text, self.stop_flag)
+        finally:
+            self.speaking.clear()
 
 
-def clean_for_speech(text):
+_ID_RES = [
+    re.compile(r"\b(?:session|cse|cmsg|chan)_[A-Za-z0-9_-]+", re.I),
+    re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I),
+    re.compile(r"\b(?=[0-9a-f]*\d)[0-9a-f]{7,}\b", re.I),  # hex hash; needs a digit so "defaced" survives
+    re.compile(r"\b\d{6,}\b"),
+]
+_ABBREV = [(re.compile(r"\be\.g\.,?", re.I), "for example,"), (re.compile(r"\bi\.e\.,?", re.I), "that is,")]
+
+
+def _tidy_line(line):
+    """One line of markdown as plain words ending like a sentence, or "" if nothing speakable is left."""
+    line = re.sub(r"^\s*(?:[-*•]|\d{1,2}[.)]|>)\s+", "", line)
+    line = re.sub(r"^\s*#{1,6}\s*", "", line)
+    if "|" in line:  # table row: read the cells as a list
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        line = ", ".join(c for c in cells if c)
+    line = re.sub(r"[*_#>|~]+", " ", line)
+    line = re.sub(r"\s+", " ", line).strip()
+    line = re.sub(r"\s+([.,;:!?])", r"\1", line)
+    line = line.rstrip(",; ")
+    if not re.search(r"\w", line):
+        return ""
+    return line if line[-1] in ".!?:" else line + "."
+
+
+def _cut_at_sentence(text, limit):
+    """Keep whole sentences up to limit characters. Only one over-long first sentence is cut, at a word."""
+    if len(text) <= limit:
+        return text
+    out, used, full = [], 0, True
+    for para in text.split("\n"):
+        kept = []
+        sents = re.split(r"(?<=[.!?])\s+", para)
+        for sent in sents:
+            if used + len(sent) + (1 if used else 0) > limit:
+                break
+            kept.append(sent)
+            used += len(sent) + 1
+        if kept:
+            out.append(" ".join(kept))
+        if len(kept) < len(sents):
+            break
+    if out:
+        return "\n".join(out)
+    cut = text.replace("\n", " ")[:limit].rsplit(" ", 1)[0].rstrip(",;:")
+    return (cut or text[:limit]) + "."
+
+
+def clean_for_speech(text, limit=900):
+    """Plain, speakable text. Each line, bullet, heading and table row ends like a sentence, and a
+    paragraph break becomes one newline. Cut to the limit at a sentence boundary, never mid-sentence."""
     t = text or ""
     t = re.sub(r"```.*?```", " ", t, flags=re.S)
+    t = re.sub(r"```.*", " ", t, flags=re.S)  # unterminated block
     t = re.sub(r"`([^`]*)`", r"\1", t)
     t = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", t)
     t = re.sub(r"https?://\S+", "a link", t)
     t = re.sub(r"[A-Za-z]:\\[^\s,;]+", "a file", t)
     t = re.sub(r"(?<!\w)(?:\.{0,2}/)?(?:[\w.-]+/)+[\w.-]+\.\w+", "a file", t)
-    t = re.sub(r"[*_#>|~]+", " ", t)
-    t = re.sub(r"^\s*[-Ã¢â‚¬Â¢]\s+", "", t, flags=re.M)
-    t = re.sub(r"\s+", " ", t).strip()
-    return t[:900]
+    for rx in _ID_RES:
+        t = rx.sub("", t)
+    for rx, word in _ABBREV:
+        t = rx.sub(word, t)
+    t = re.sub(r"\s*(?:->|=>|→)\s*", " to ", t)
+    t = re.sub(r"\s*&\s*", " and ", t)
+    paras, cur = [], []
+    for raw in t.splitlines():
+        if not raw.strip() or re.fullmatch(r"\s*(?:[-=_*]{3,}|\|?[\s:|-]+\|[\s:|-]*)\s*", raw):
+            # blank line, horizontal rule or table separator row
+            if cur and (not raw.strip() or "|" not in raw):
+                paras.append(" ".join(cur))
+                cur = []
+            continue
+        line = _tidy_line(raw)
+        if line:
+            cur.append(line)
+            if re.match(r"\s*#{1,6}\s", raw):  # a heading stands alone, with a longer pause after it
+                paras.append(" ".join(cur))
+                cur = []
+    if cur:
+        paras.append(" ".join(cur))
+    return _cut_at_sentence("\n".join(p for p in paras if p), limit)
+
+
+def split_sentences(text):
+    """[(sentence, ends_paragraph)] from clean_for_speech output. Very short ones join the next."""
+    out = []
+    for para in (text or "").split("\n"):
+        merged = []
+        for p in (p for p in re.split(r"(?<=[.!?])\s+", para.strip()) if p):
+            if merged and len(merged[-1]) < 14:
+                merged[-1] += " " + p
+            else:
+                merged.append(p)
+        out += [(m, False) for m in merged]
+        if merged:
+            out[-1] = (out[-1][0], True)
+    if out:
+        out[-1] = (out[-1][0], False)
+    return out
 
 
 def first_sentences(text, n=2, limit=300):
-    t = clean_for_speech(text)
+    t = clean_for_speech(text, limit=5000).replace("\n", " ")
     t = re.sub(r"(^|[\s:])\d{1,2}[.)]\s+", r"\1 ", t)  # drop numbered-list markers ("next: 1. I wait")
+    t = re.sub(r"\s{2,}", " ", t).strip()
     parts = re.split(r"(?<=[.!?])\s+", t)
     out = " ".join(parts[:n])
     return out[:limit]
@@ -533,6 +630,125 @@ def play_audio(data, stop_flag):
     dev.close()
 
 
+def decode_pcm(data):
+    """Any audio bytes the engines return -> (int16 numpy samples, channels, sample rate)."""
+    snd = miniaudio.decode(data, output_format=miniaudio.SampleFormat.SIGNED16)
+    return np.frombuffer(snd.samples, dtype=np.int16), snd.nchannels, snd.sample_rate
+
+
+def conform_pcm(arr, nch, sr, want_nch, want_sr):
+    """Match a clip to the first clip's channels and rate so clips can be joined (engines are
+    consistent, so this is only a guard)."""
+    if nch != want_nch:
+        frames = arr.reshape(-1, nch).astype(np.float32).mean(axis=1)
+        arr = np.repeat(frames, want_nch).astype(np.int16)
+    if sr != want_sr:
+        n = int(len(arr) // want_nch * want_sr / sr)
+        x = np.linspace(0, 1, n, endpoint=False)
+        frames = arr.reshape(-1, want_nch).astype(np.float32)
+        src = np.linspace(0, 1, len(frames), endpoint=False)
+        arr = np.stack([np.interp(x, src, frames[:, c]) for c in range(want_nch)], axis=1)
+        arr = arr.astype(np.int16).reshape(-1)
+    return arr
+
+
+def silence_pcm(ms, sr, nch):
+    return np.zeros(int(sr * ms / 1000) * nch, dtype=np.int16)
+
+
+def pause_after(i, n, ends_paragraph):
+    """Silence (ms) after sentence i of n."""
+    if i >= n - 1:
+        return 0
+    return int(CFG.get("paragraph_pause_ms", 600)) if ends_paragraph else int(CFG.get("sentence_pause_ms", 280))
+
+
+def play_sentences(text, stop_flag):
+    """Speak text one sentence at a time with silence between them. The next sentence is synthesized
+    while the current one plays; one output device carries the whole line; stop_flag cuts it at once."""
+    sents = split_sentences(text)
+    if not sents:
+        return
+    vol = float(CFG.get("volume", 1.0))
+    buf, lock = bytearray(), threading.Lock()
+    fmt, ready, finished = {}, threading.Event(), threading.Event()
+    t0 = time.time()
+
+    def produce():
+        try:
+            for i, (s, para_end) in enumerate(sents):
+                if stop_flag.is_set():
+                    return
+                while fmt and len(buf) > 8 * fmt["sr"] * fmt["nch"] * 2 and not stop_flag.is_set():
+                    time.sleep(0.05)  # enough queued ahead; wait for playback to catch up
+                audio = synth(s)
+                if not audio or stop_flag.is_set():
+                    continue
+                arr, nch, sr = decode_pcm(audio)
+                if not fmt:
+                    fmt.update(nch=nch, sr=sr)
+                    log(f"first sentence ready in {time.time() - t0:.1f}s")
+                else:
+                    arr = conform_pcm(arr, nch, sr, fmt["nch"], fmt["sr"])
+                if vol != 1.0:
+                    arr = np.clip(arr.astype(np.float32) * vol, -32768, 32767).astype(np.int16)
+                gap = silence_pcm(pause_after(i, len(sents), para_end), fmt["sr"], fmt["nch"])
+                with lock:
+                    buf.extend(arr.tobytes() + gap.tobytes())
+                ready.set()
+        except Exception:
+            log("synth error", traceback.format_exc())
+        finally:
+            finished.set()
+            ready.set()
+
+    threading.Thread(target=produce, daemon=True).start()
+    while not ready.wait(0.05):
+        if stop_flag.is_set():
+            return
+    if not fmt or stop_flag.is_set():
+        return
+    nch, sr = fmt["nch"], fmt["sr"]
+    done = threading.Event()
+
+    def gen():
+        import array
+        required = yield b""
+        while not stop_flag.is_set():
+            need = required * nch * 2
+            fin = finished.is_set()  # read before the buffer so a last append is never missed
+            with lock:
+                chunk = bytes(buf[:need])
+                del buf[:need]
+            if fin and not chunk:
+                break
+            if len(chunk) < need:
+                chunk += bytes(need - len(chunk))  # next sentence not ready yet: silence
+            required = yield array.array("h", chunk)
+        done.set()
+
+    try:
+        dev = miniaudio.PlaybackDevice(output_format=miniaudio.SampleFormat.SIGNED16,
+                                       nchannels=nch, sample_rate=sr)
+    except miniaudio.MiniaudioError:
+        log("miniaudio device failed, using winsound")
+        while not finished.wait(0.05) and not stop_flag.is_set():
+            pass
+        if not stop_flag.is_set():
+            import array
+            play_with_winsound(array.array("h", bytes(buf)), nch, sr, stop_flag)
+        return
+    log(f"playing on {dev.backend} / {getattr(dev, 'device_name', '?')}")
+    g = gen()
+    next(g)
+    dev.start(g)
+    deadline = time.time() + 300
+    while not done.wait(0.05) and not stop_flag.is_set() and time.time() < deadline:
+        pass
+    time.sleep(0.15)
+    dev.close()
+
+
 def play_with_winsound(samples, nch, sr, stop_flag):
     import wave
     path = os.path.join(tempfile.gettempdir(), f"relay_{os.getpid()}.wav")
@@ -550,7 +766,8 @@ def play_with_winsound(samples, nch, sr, stop_flag):
 
 # --------------------------------------------------------------------------- hub state
 speaker = Speaker()
-state = {"attached": None, "last_speaker": None, "last_sent": None, "pending": {}, "spoken_recap": {}}
+state = {"attached": None, "last_speaker": None, "last_sent": None, "pending": {}, "spoken_recap": {},
+         "shown": None, "auto_switch": bool(CFG.get("auto_switch", True))}
 state_lock = threading.Lock()
 
 
@@ -559,6 +776,20 @@ def chime():
         winsound.MessageBeep(winsound.MB_ICONASTERISK)
     except Exception:
         pass
+
+
+def maybe_auto_switch(host, is_replay=False):
+    with state_lock:
+        enabled, shown = state["auto_switch"], state.get("shown")
+    only = bool(CFG.get("auto_switch_only_when_claude_in_front", True))
+    if not should_auto_switch(host, shown, enabled, only, claude_in_front() if enabled else False,
+                              recorder.active, is_replay):
+        return
+    with state_lock:
+        state["shown"] = host
+    log("auto switch to", host)
+    os.startfile(f"claude://claude.ai/epitaxy/{host}")
+    time.sleep(0.4)  # let the chat open before its reply starts
 
 
 def announce(session_id, cwd, text):
@@ -739,7 +970,13 @@ def transcribe(pcm):
 
 
 ATTACH_RE = re.compile(r"^(?:talk to|switch to|go to|attach to|connect to)\s+(.+?)[.!]?$", re.I)
-TELL_RE = re.compile(r"^(?:tell|ask|message)\s+(.+)$", re.I)
+# Optional filler, then the verb. Speech-to-text often mishears "tell" (tel, tall, till ...).
+TELL_RE = re.compile(
+    r"^(?:(?:also|and|so|ok|okay|hey|um|uh)[,\s]+)?(tell|ask|message|tel|tal|tall|till|tale|tail)[,\s]+(.+)$",
+    re.I)
+TELL_EXACT = ("tell", "ask", "message")
+AUTO_SWITCH_RE = re.compile(
+    r"^(?:(?:turn|switch)\s+(on|off)\s+auto[\s-]?switch(?:ing)?|auto[\s-]?switch(?:ing)?\s+(on|off))[.!]?$", re.I)
 STOP_RE = re.compile(r"^(?:stop|be quiet|shut up|quiet|cancel)[.!]?$", re.I)
 LIST_RE = re.compile(r"^(?:list|what are|which are)(?: my| the)? sessions\??[.!]?$", re.I)
 
@@ -760,12 +997,27 @@ def split_target(rest):
     return best[0], best[2]
 
 
+def parse_tell(text):
+    """(session, message, missing_name). An exact verb (tell, ask, message) with no matching session
+    is reported as missing_name. A misheard verb ("till tomorrow ...") with no matching session is not
+    a command at all, so the whole text comes back unnamed."""
+    m = TELL_RE.match(text)
+    if not m:
+        return None, text, False
+    target, body = split_target(m.group(2))
+    if not target:
+        return None, text, m.group(1).lower() in TELL_EXACT
+    return target, re.sub(r"^to\s+", "", body, flags=re.I), False  # "tell X to stop" -> "stop"
+
+
 def deliver(session, text):
     """Open the session in the Claude app and type the message, as the user would."""
     speaker.drop_from(session.get("host"))  # anything it was still saying is answered now
     prev = fg_window()
     was_claude = window_proc(prev) == "claude.exe"
     os.startfile(f"claude://claude.ai/epitaxy/{session['host']}")
+    with state_lock:
+        state["shown"] = session["host"]
     t0 = time.time()
     while time.time() - t0 < 4 and not claude_in_front():
         time.sleep(0.1)
@@ -792,6 +1044,13 @@ def handle_talk(text):
         names = [s["name"] for s in load_sessions() if s["host"]]
         speaker.say("Your sessions are: " + ", ".join(names) + "." if names else "No sessions are open.")
         return
+    m = AUTO_SWITCH_RE.match(text)
+    if m:  # runtime only; config.json is not written
+        on = (m.group(1) or m.group(2)).lower() == "on"
+        with state_lock:
+            state["auto_switch"] = on
+        speaker.say("Auto switch on." if on else "Auto switch off.")
+        return
     m = ATTACH_RE.match(text)
     if m:
         s, _ = find_session(m.group(1))
@@ -802,15 +1061,11 @@ def handle_talk(text):
         else:
             speaker.say(f"I couldn't find a session called {m.group(1)}.")
         return
-    target, body = None, text
-    m = TELL_RE.match(text)
-    if m:
-        target, body = split_target(m.group(1))
-        body = re.sub(r"^to\s+", "", body, flags=re.I)  # "tell X to stop" -> "stop"
-        if not target:
-            names = [s["name"] for s in load_sessions() if s["host"]]
-            speaker.say("I didn't catch a session name. Your sessions are: " + ", ".join(names) + ".")
-            return
+    target, body, bad_name = parse_tell(text)
+    if bad_name:
+        names = [s["name"] for s in load_sessions() if s["host"]]
+        speaker.say("I didn't catch a session name. Your sessions are: " + ", ".join(names) + ".")
+        return
     if target is None:
         # Unnamed: the session you're looking at, else the one you attached to or last sent to.
         # Never the one that spoke last: that silently sent messages to the wrong chat.

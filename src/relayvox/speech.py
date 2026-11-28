@@ -426,23 +426,30 @@ class Speaker:
         def alive() -> bool:
             return self._epoch == epoch
 
+        def put(entry: tuple[bytes, int]) -> None:
+            while alive():
+                try:
+                    q.put(entry, timeout=0.02)
+                    return
+                except queue.Full:
+                    continue
+
         def produce() -> None:
             try:
-                for s in sentences:
+                pause_ms = int(self.cfg["speech"].get("sentence_pause_ms", 280))
+                for n, s in enumerate(sentences):
                     if not alive():
                         return
+                    rate = 24000
                     gen = (
                         self.synth(s, self.cfg)
                         if item.lang == "en"
                         else self.synth(s, self.cfg, lang=item.lang)
                     )
                     for pcm, rate in gen:
-                        while alive():
-                            try:
-                                q.put((pcm, rate), timeout=0.02)
-                                break
-                            except queue.Full:
-                                continue
+                        put((pcm, rate))
+                    if pause_ms and n < len(sentences) - 1:
+                        put((bytes(2 * rate * pause_ms // 1000), rate))  # silence, 16-bit mono
             except Exception:
                 log.exception("synth failed")
             finally:
