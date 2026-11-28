@@ -66,6 +66,9 @@ What you can say:
 - **"Talk to docs site."** Everything you say goes there until you switch.
 - **Anything else** goes to the session on screen, or the one you last talked to.
 - **"Auto switch on"** or **"auto switch off"** (also "turn off auto switch") changes whether the speaking session's chat opens, until Relay restarts.
+- **"What did payments say?"**, **"status"**, **"where's docs at?"** are answered by Relay from the last few lines each session spoke. Nothing is sent to a session.
+- **"Relay, what is blocking the release?"** (also "Hey Relay", "brain, ...") asks a small Claude Haiku process started by Relay through your own `claude` login, with no tools. Set `brain_enabled` to false to turn it off; it is off automatically if `claude` is not on PATH. It sees only session names, status and the last spoken lines.
+- If Relay asks who to send a message to, it holds the message for a minute: say the session name, or "tell payments fix", to send it.
 - **"List sessions"** reads out what is open. **"Be quiet"** stops speech.
 
 When the target changes, Relay says "To payments fix." first, so a wrong target is heard before it is sent, with a moment to cancel.
@@ -75,13 +78,13 @@ When the target changes, Relay says "To payments fix." first, so a wrong target 
 Put only what you want to change in `config.json` next to `relay.py`. Defaults are in `config.example.json`. Restart Relay after changing them.
 
 ```json
-{ "tts": "kokoro", "kokoro_voice": "bm_george", "mic": "part of your mic's name", "hotkeys": { "talk": "f8" } }
+{ "tts": "kokoro", "kokoro_voice": "bf_emma", "mic": "part of your mic's name", "hotkeys": { "talk": "f8" } }
 ```
 
 | Setting | What it does |
 |---|---|
 | `tts` | `"kokoro"` (local neural voice, recommended), `"windows"` (built in, offline), `"edge"` (free Microsoft voices, online) or `"elevenlabs"` (needs `ELEVENLABS_API_KEY` in a `.env` file). |
-| `kokoro_voice`, `kokoro_speed` | Kokoro voice (`bm_george`, `bm_lewis`, `bf_emma`, `af_heart`, `ff_siwis` for French, ...) and speed. |
+| `kokoro_voice`, `kokoro_voice_fr`, `kokoro_speed` | Kokoro voice (`bm_george`, `bm_lewis`, `bf_emma`, `af_heart`, `ff_siwis` for French, ...) and speed. |
 | `sentence_pause_ms`, `paragraph_pause_ms` | Silence between spoken sentences (default 280) and after a paragraph, list or heading (default 600). Each sentence is synthesized separately, so the next one is ready while the current one plays. |
 | `auto_switch` | `true` by default. When a session starts speaking, open its chat so you see what it is talking about. Skipped when that chat is already on screen, while you are recording, and for replays. Say "auto switch off" or "auto switch on" to change it until Relay restarts. |
 | `auto_switch_only_when_claude_in_front` | `true` by default: only switch while the Claude window is in front, so another app never loses focus. |

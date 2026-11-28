@@ -1,6 +1,10 @@
 """Claude Code hook: forward the hook payload to the local Relay. Never blocks, never fails."""
+import os
 import sys
 import urllib.request
+
+if os.environ.get("RELAYVOX_BRAIN") == "1":
+    sys.exit(0)  # the brain's own process must never show up as a session
 
 try:
     data = sys.stdin.buffer.read()
